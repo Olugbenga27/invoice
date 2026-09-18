@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Invoice Studio &mdash; Invoice Generator</title>
+  <meta name="description" content="A single-page invoice generator. Add line items, watch the totals update live, and download the invoice as a PDF." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#invoiceForm">Skip to the invoice form</a>
+
+  <header class="topbar">
+    <div class="topbar__brand">
+      <span class="topbar__logo" aria-hidden="true">&#129534;</span>
+      <span class="topbar__name">Invoice Studio</span>
+    </div>
+    <div class="topbar__actions">
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <button id="sampleBtn" class="btn btn--ghost" type="button">Load sample</button>
+      <button id="resetBtn" class="btn btn--ghost" type="button">Reset</button>
+      <button id="printBtn" class="btn btn--ghost" type="button">Print</button>
+      <button id="pdfBtn" class="btn btn--primary" type="button">Download PDF</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel" aria-labelledby="editorHeading">
+      <h1 class="panel__title" id="editorHeading">Invoice details</h1>
+      <p class="panel__hint">Everything you type updates the preview instantly, and your work is saved in this browser.</p>
+
+      <form id="invoiceForm" novalidate autocomplete="off">
+        <fieldset class="field-group">
+          <legend>Your business</legend>
+          <div class="grid grid--2">
+            <label class="field">
+              <span class="field__label">Business name</span>
+              <input class="input" type="text" data-bind="from.name" placeholder="Northwind Studio" />
+            </label>
+            <label class="field">
+              <span class="field__label">Email</span>
+              <input class="input" type="email" data-bind="from.email" placeholder="billing@northwind.studio" />
+            </label>
+            <label class="field">
+              <span class="field__label">Phone</span>
+              <input class="input" type="tel" data-bind="from.phone" placeholder="+1 (415) 555-0134" />
+            </label>
+            <label class="field">
+              <span class="field__label">Address</span>
+              <textarea class="input" rows="2" data-bind="from.address" placeholder="1480 Market Street&#10;San Francisco, CA 94103"></textarea>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+          <legend>Bill to</legend>
+          <div class="grid grid--2">
+            <label class="field">
+              <span class="field__label">Client name</span>
+              <input class="input" type="text" data-bind="to.name" placeholder="Brightline Retail Ltd." />
+            </label>
+            <label class="field">
+              <span class="field__label">Email</span>
+              <input class="input" type="email" data-bind="to.email" placeholder="accounts@brightline.co" />
+            </label>
+            <label class="field">
+              <span class="field__label">Address</span>
+              <textarea class="input" rows="2" data-bind="to.address" placeholder="22 Kingsway&#10;London WC2B 6UN"></textarea>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+          <legend>Invoice details</legend>
+          <div class="grid grid--2">
+            <label class="field">
+              <span class="field__label">Invoice number</span>
+              <input class="input" type="text" data-bind="meta.number" placeholder="INV-2026-014" />
+            </label>
+            <label class="field">
+              <span class="field__label">Currency</span>
+              <select class="input" id="currencySelect" data-bind="meta.currency"></select>
+            </label>
+            <label class="field">
+              <span class="field__label">Invoice date</span>
+              <input class="input" type="date" data-bind="meta.date" />
+            </label>
+            <label class="field">
+              <span class="field__label">Due date</span>
+              <input class="input" type="date" data-bind="meta.due" />
+            </label>
+            <label class="field">
+              <span class="field__label">Discount (%)</span>
+              <input class="input" type="number" min="0" max="100" step="0.1" data-clamp="percent" data-bind="meta.discountRate" />
+            </label>
+            <label class="field">
+              <span class="field__label">Tax / VAT (%)</span>
+              <input class="input" type="number" min="0" max="100" step="0.1" data-clamp="percent" data-bind="meta.taxRate" />
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+          <legend>Line items</legend>
+          <div class="items-editor">
+            <div class="items-editor__head" aria-hidden="true">
+              <span>Description</span><span>Qty</span><span>Unit price</span><span>Amount</span>
+            </div>
+            <div class="items-editor__body" id="itemsEditor"></div>
+            <button class="btn btn--dashed" id="addItemBtn" type="button">+ Add line item</button>
+          </div>
+        </fieldset>
+
+        <fieldset class="field-group">
+          <legend>Notes &amp; payment</legend>
+          <div class="grid">
+            <label class="field">
+              <span class="field__label">Notes</span>
+              <textarea class="input" rows="3" data-bind="notes" placeholder="Payment is due within 14 days."></textarea>
+            </label>
+            <label class="field">
+              <span class="field__label">Payment details</span>
+              <textarea class="input" rows="3" data-bind="payment" placeholder="Bank transfer&#10;Acct 0012 3456 7890"></textarea>
+            </label>
+          </div>
+        </fieldset>
+      </form>
+    </section>
+
+    <section class="preview" aria-label="Invoice preview">
+      <p class="preview__label">Live preview</p>
+
+      <article class="invoice" id="invoice">
+        <div class="invoice__accent" aria-hidden="true"></div>
+
+        <header class="invoice__top">
+          <div>
+            <h2 class="invoice__title">INVOICE</h2>
+            <p class="invoice__number">#<span id="outNumber"></span></p>
+          </div>
+          <div class="invoice__sender">
+            <p class="invoice__sender-name" id="outFromName"></p>
+            <p class="invoice__muted" id="outFromAddress"></p>
+            <p class="invoice__muted" id="outFromEmail"></p>
+            <p class="invoice__muted" id="outFromPhone"></p>
+          </div>
+        </header>
+
+        <section class="invoice__meta">
+          <div class="meta-block meta-block--client">
+            <p class="meta-block__label">Billed to</p>
+            <p class="meta-block__value" id="outToName"></p>
+            <p class="invoice__muted" id="outToAddress"></p>
+            <p class="invoice__muted" id="outToEmail"></p>
+          </div>
+          <div class="meta-block">
+            <p class="meta-block__label">Invoice date</p>
+            <p class="meta-block__value" id="outDate"></p>
+          </div>
+          <div class="meta-block">
+            <p class="meta-block__label">Due date</p>
+            <p class="meta-block__value" id="outDue"></p>
+          </div>
+        </section>
+
+        <table class="items">
+          <thead>
+            <tr>
+              <th scope="col">Description</th>
+              <th scope="col" class="num">Qty</th>
+              <th scope="col" class="num">Unit price</th>
+              <th scope="col" class="num">Amount</th>
+            </tr>
+          </thead>
+          <tbody id="outItems"></tbody>
+        </table>
+
+        <section class="invoice__totals">
+          <div class="totals">
+            <div class="totals__row">
+              <span>Subtotal</span><span id="outSubtotal">0.00</span>
+            </div>
+            <div class="totals__row" id="rowDiscount" hidden>
+              <span id="outDiscountLabel">Discount</span><span id="outDiscount">0.00</span>
+            </div>
+            <div class="totals__row" id="rowTax" hidden>
+              <span id="outTaxLabel">Tax</span><span id="outTax">0.00</span>
+            </div>
+            <div class="totals__row totals__row--due">
+              <span>Total due</span><span id="outTotal">0.00</span>
+            </div>
+          </div>
+        </section>
+
+        <footer class="invoice__foot">
+          <div class="foot-block" id="footNotes" hidden>
+            <p class="meta-block__label">Notes</p>
+            <p class="invoice__muted" id="outNotes"></p>
+          </div>
+          <div class="foot-block" id="footPayment" hidden>
+            <p class="meta-block__label">Payment details</p>
+            <p class="invoice__muted" id="outPayment"></p>
+          </div>
+        </footer>
+      </article>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
