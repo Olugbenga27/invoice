@@ -583,6 +583,268 @@
     }
   }
 
+  /* ----------------------- 6b. social sharing ---------------------------- */
+
+  let shareMenuOpen = false;
+  let toastTimer = null;
+
+  const buildShareUrl = () => {
+    const base = location.href.split('#')[0];
+    try {
+      const payload = btoa(encodeURIComponent(JSON.stringify(state)));
+      return base + '#inv=' + payload;
+    } catch (err) {
+      return base;
+    }
+  };
+
+  function parseShareHash() {
+    const match = /[#&]inv=([^&]+)/.exec(location.hash);
+    if (!match) return null;
+    try {
+      return JSON.parse(decodeURIComponent(atob(match[1])));
+    } catch (err) {
+      return null;
+    }
+  }
+
+  const shareTotal = () => formatMoney(computeTotals(state).total, state.meta.currency);
+  const shareNumber = () => trimmed(state.meta.number) || 'INV-0001';
+  const shareClient = () => trimmed(state.to.name) || 'your client';
+
+  function whatsappMessage() {
+    const link = buildShareUrl();
+    return 'Hi ' + shareClient() + ',\nyour invoice ' + shareNumber() +
+      ' for ' + shareTotal() + ' is ready.' + (link ? '\nView it: ' + link : '');
+  }
+
+  function xMessage() {
+    return 'Invoice ' + shareNumber() + ' has been generated. Total: ' + shareTotal();
+  }
+
+  function showToast(message) {
+    const toast = $('#shareToast');
+    toast.textContent = message;
+    toast.classList.add('toast--show');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('toast--show'), 2600);
+  }
+
+  async function copyShareLink() {
+    const url = buildShareUrl();
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const helper = document.createElement('textarea');
+        helper.value = url;
+        helper.style.position = 'fixed';
+        helper.style.opacity = '0';
+        document.body.appendChild(helper);
+        helper.focus();
+        helper.select();
+        document.execCommand('copy');
+        helper.remove();
+      }
+      showToast('Link copied');
+    } catch (err) {
+      showToast('Could not copy — copy the address manually.');
+    }
+  }
+
+  function openShareMenu() {
+    shareMenuOpen = true;
+    $('#shareMenu').hidden = false;
+    $('#shareSubMenu').hidden = true;
+    $('#shareBtn').setAttribute('aria-expanded', 'true');
+    $('#nativeShareBtn').hidden = typeof navigator.share !== 'function';
+    const first = $('.share-opt', $('#shareMenu'));
+    if (first) first.focus();
+    // Warm up the image renderer so sharing keeps the user-gesture context.
+    loadScript(PDF_LIBS.html2canvas).catch(() => {});
+  }
+
+  function closeShareMenu() {
+    shareMenuOpen = false;
+    $('#shareMenu').hidden = true;
+    $('#shareBtn').setAttribute('aria-expanded', 'false');
+    if (document.activeElement && $('#shareMenu').contains(document.activeElement)) $('#shareBtn').focus();
+  }
+
+  /** Render the live invoice to a PNG canvas using html2canvas (same path as the PDF). */
+  async function buildShareImage() {
+    await loadScript(PDF_LIBS.html2canvas);
+    if (typeof window.html2canvas !== 'function') throw new Error('Image library unavailable (offline?)');
+
+    const preview = $('.preview');
+    const paper = $('#invoice');
+    const previousOverflow = preview.style.overflow;
+    const previousScroll = window.scrollY || 0;
+
+    // Capture at the top of the page with no scroll containers in the way.
+    preview.style.overflow = 'visible';
+    window.scrollTo(0, 0);
+
+    try {
+      return await window.html2canvas(paper, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        logging: false,
+        useCORS: true,
+        windowWidth: Math.max(paper.scrollWidth, window.innerWidth || 0),
+        windowHeight: Math.max(paper.scrollHeight, window.innerHeight || 0)
+      });
+    } finally {
+      preview.style.overflow = previousOverflow;
+      window.scrollTo(0, previousScroll);
+    }
+  }
+
+  const canvasBlob = (canvas) =>
+    new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Could not encode image'))), 'image/png');
+    });
+
+  function shareImageName(platform) {
+    const slug = trimmed(state.meta.number).replace(/[^a-z0-9\-_ ]/gi, '').replace(/\s+/g, '-') || 'invoice';
+    return slug + '-' + platform + '.png';
+  }
+
+  function downloadCanvas(canvas, filename) {
+    const anchor = document.createElement('a');
+    anchor.href = canvas.toDataURL('image/png');
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+
+  async function downloadShareImage() {
+    setStatus('Preparing a shareable image\u2026');
+    try {
+      downloadCanvas(await buildShareImage(), shareImageName('invoice'));
+      setStatus('Image saved to your downloads.', 'ok');
+    } catch (err) {
+      console.error('[invoice] image export failed:', err);
+      setStatus('Image export unavailable (offline?) \u2014 use the PDF instead.', 'warn');
+    }
+  }
+
+  /** Generate a share image, native-share it when possible, else download with guidance. */
+  async function shareAsImage(platform) {
+    const label = platform === 'tiktok' ? 'TikTok' : 'Instagram';
+    setStatus('Preparing your ' + label + ' image\u2026');
+    try {
+      const canvas = await buildShareImage();
+      const canNative = navigator.share && navigator.canShare;
+      if (canNative) {
+        const file = new File([await canvasBlob(canvas)], shareImageName(platform), { type: 'image/png' });
+        if (navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file], title: 'Invoice ' + shareNumber(), text: xMessage() });
+            setStatus(label + ' image shared.', 'ok');
+            return;
+          } catch (err) {
+            if (err && err.name === 'AbortError') return;
+          }
+        }
+      }
+      downloadCanvas(canvas, shareImageName(platform));
+      showToast(platform === 'tiktok' ? 'Image saved \u2014 open TikTok and upload it.' : 'Image saved \u2014 open Instagram and add it as a Story or post.');
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      console.error('[invoice] ' + label + ' image failed:', err);
+      setStatus(label + ' image failed \u2014 try downloading the PDF instead.', 'warn');
+    }
+  }
+
+  async function nativeWebShare() {
+    const url = buildShareUrl();
+    try {
+      await navigator.share({
+        title: 'Invoice ' + shareNumber(),
+        text: xMessage(),
+        url: url
+      });
+    } catch (err) {
+      if (err && err.name !== 'AbortError') showToast('Sharing is not available on this device.');
+    }
+  }
+
+  function bindShareEvents() {
+    const menu = $('#shareMenu');
+
+    $('#shareBtn').addEventListener('click', () => {
+      if (shareMenuOpen) closeShareMenu();
+      else openShareMenu();
+    });
+
+    $('#nativeShareBtn').addEventListener('click', () => {
+      closeShareMenu();
+      nativeWebShare();
+    });
+
+    menu.addEventListener('click', (event) => {
+      if (event.target.closest('[data-share-close]')) {
+        closeShareMenu();
+        return;
+      }
+      const option = event.target.closest('[data-share]');
+      if (!option) return;
+      const action = option.dataset.share;
+
+      if (action === 'download') {
+        $('#shareSubMenu').hidden = !$('#shareSubMenu').hidden;
+        return;
+      }
+      if (action === 'copy') {
+        copyShareLink();
+        return;
+      }
+      if (action === 'native') {
+        closeShareMenu();
+        nativeWebShare();
+        return;
+      }
+      if (action === 'pdf') {
+        closeShareMenu();
+        downloadPdf();
+        return;
+      }
+      if (action === 'image') {
+        closeShareMenu();
+        downloadShareImage();
+        return;
+      }
+      if (action === 'instagram') {
+        closeShareMenu();
+        shareAsImage('instagram');
+        return;
+      }
+      if (action === 'tiktok') {
+        closeShareMenu();
+        shareAsImage('tiktok');
+        return;
+      }
+      if (action === 'whatsapp') {
+        window.open('https://wa.me/?text=' + encodeURIComponent(whatsappMessage()), '_blank', 'noopener');
+        closeShareMenu();
+        return;
+      }
+      if (action === 'x') {
+        const params = new URLSearchParams({ text: xMessage() });
+        const url = buildShareUrl();
+        if (url) params.set('url', url);
+        window.open('https://twitter.com/intent/tweet?' + params.toString(), '_blank', 'noopener');
+        closeShareMenu();
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && shareMenuOpen) closeShareMenu();
+    });
+  }
+
   /* ---------------------------- 7. wiring -------------------------------- */
 
   /** Push a field's value into state, wherever the field lives (panel or item row). */
@@ -730,11 +992,13 @@
 
   function init() {
     buildCurrencyOptions();
-    state = loadSaved() || blankState();
+    const shared = parseShareHash();
+    state = shared ? normalize(shared) : (loadSaved() || blankState());
     readStateIntoForm();
     renderItemsEditor();
     renderPreview();
     bindEvents();
+    bindShareEvents();
   }
 
   if (document.readyState === 'loading') {
