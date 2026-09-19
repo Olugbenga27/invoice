@@ -632,13 +632,6 @@
 
   const shareTotal = () => formatMoney(computeTotals(state).total, state.meta.currency);
   const shareNumber = () => trimmed(state.meta.number) || 'INV-0001';
-  const shareClient = () => trimmed(state.to.name) || 'your client';
-
-  function whatsappMessage() {
-    const link = buildShareUrl();
-    return 'Hi ' + shareClient() + ',\nyour invoice ' + shareNumber() +
-      ' for ' + shareTotal() + ' is ready.' + (link ? '\nView it: ' + link : '');
-  }
 
   function xMessage() {
     return 'Invoice ' + shareNumber() + ' has been generated. Total: ' + shareTotal();
@@ -757,7 +750,14 @@
 
   /** Generate a share image, native-share it when possible, else download with guidance. */
   async function shareAsImage(platform) {
-    const label = platform === 'tiktok' ? 'TikTok' : 'Instagram';
+    const label = platform.charAt(0).toUpperCase() + platform.slice(1);
+    const guidance = {
+      instagram: 'Image saved \u2014 open Instagram and add it as a Story or post.',
+      tiktok: 'Image saved \u2014 open TikTok and upload it.',
+      whatsapp: 'Image saved \u2014 open WhatsApp, attach it in a chat, and send.',
+      x: 'Image saved \u2014 open X and attach it to your post.'
+    }[platform] || 'Image saved to your downloads.';
+
     setStatus('Preparing your ' + label + ' image\u2026');
     try {
       const canvas = await buildShareImage();
@@ -775,7 +775,7 @@
         }
       }
       downloadCanvas(canvas, shareImageName(platform));
-      showToast(platform === 'tiktok' ? 'Image saved \u2014 open TikTok and upload it.' : 'Image saved \u2014 open Instagram and add it as a Story or post.');
+      showToast(guidance);
     } catch (err) {
       if (err && err.name === 'AbortError') return;
       console.error('[invoice] ' + label + ' image failed:', err);
@@ -910,16 +910,13 @@
         return;
       }
       if (action === 'whatsapp') {
-        window.open('https://wa.me/?text=' + encodeURIComponent(whatsappMessage()), '_blank', 'noopener');
         closeShareMenu();
+        shareAsImage('whatsapp');
         return;
       }
       if (action === 'x') {
-        const params = new URLSearchParams({ text: xMessage() });
-        const url = buildShareUrl();
-        if (url) params.set('url', url);
-        window.open('https://twitter.com/intent/tweet?' + params.toString(), '_blank', 'noopener');
         closeShareMenu();
+        shareAsImage('x');
       }
     });
 
