@@ -134,7 +134,8 @@
       due: plusDaysISO(14),
       currency: 'USD',
       discountRate: 0,
-      taxRate: 0
+      taxRate: 0,
+      deliveryFee: 0
     },
     items: [makeItem()],
     notes: 'Thank you for your business!',
@@ -159,7 +160,8 @@
       due: plusDaysISO(14),
       currency: 'USD',
       discountRate: 5,
-      taxRate: 7.5
+      taxRate: 7.5,
+      deliveryFee: 25
     },
     items: [
       makeItem('Brand identity design — logo suite, colour system, usage guide', 1, 2400),
@@ -196,7 +198,8 @@
         due: dateInputValue((raw.meta || {}).due, ''),
         currency: CURRENCIES.indexOf((raw.meta || {}).currency) === -1 ? base.meta.currency : raw.meta.currency,
         discountRate: clampPercent((raw.meta || {}).discountRate),
-        taxRate: clampPercent((raw.meta || {}).taxRate)
+        taxRate: clampPercent((raw.meta || {}).taxRate),
+        deliveryFee: clampPositive((raw.meta || {}).deliveryFee)
       },
       notes: text(raw.notes, ''),
       payment: text(raw.payment, ''),
@@ -229,6 +232,7 @@
     const taxable = subtotal - discount;
     const taxRate = clampPercent(s.meta.taxRate);
     const tax = taxable * (taxRate / 100);
+    const deliveryFee = clampPositive(s.meta.deliveryFee);
 
     return {
       subtotal: subtotal,
@@ -236,7 +240,8 @@
       discountRate: discountRate,
       tax: tax,
       taxRate: taxRate,
-      total: taxable + tax
+      deliveryFee: deliveryFee,
+      total: taxable + tax + deliveryFee
     };
   }
 
@@ -396,6 +401,13 @@
 
     setText('#outNumber', trimmed(state.meta.number) || 'INV-0001');
     setText('#outFromName', trimmed(state.from.name) || 'Your business name');
+    const businessName = trimmed(state.from.name) || '';
+    const logo = $('#outLogo');
+    if (logo) {
+      const initials = businessName.split(/\s+/).map((w) => w.charAt(0)).filter(Boolean).slice(0, 2).join('').toUpperCase();
+      logo.textContent = initials;
+      logo.hidden = !initials;
+    }
     setOptional('#outFromAddress', state.from.address);
     setOptional('#outFromEmail', state.from.email);
     setOptional('#outFromPhone', state.from.phone);
@@ -416,6 +428,9 @@
     toggle('#rowTax', totals.tax > 0);
     setText('#outTaxLabel', 'Tax / VAT (' + trimNumber(totals.taxRate) + '%)');
     setText('#outTax', formatMoney(totals.tax, currency));
+
+    toggle('#rowDelivery', totals.deliveryFee > 0);
+    setText('#outDelivery', formatMoney(totals.deliveryFee, currency));
 
     setText('#outTotal', formatMoney(totals.total, currency));
 
@@ -532,13 +547,20 @@
     return pdf;
   }
 
-  async function downloadPdf() {
-    const button = $('#pdfBtn');
+  /** The scroll container the live invoice currently lives in (preview or ready-to-print stage). */
+  function captureHost() {
+    const paper = $('#invoice');
+    if (!paper) return null;
+    return paper.closest('.preview, .print-view__stage') || null;
+  }
+
+  async function downloadPdf(trigger) {
+    const button = trigger || $('#pdfBtn');
     if (button.disabled) return;
 
-    const preview = $('.preview');
     const paper = $('#invoice');
-    const previousOverflow = preview.style.overflow;
+    const host = captureHost();
+    const previousOverflow = host ? host.style.overflow : '';
     const previousScroll = window.scrollY || 0;
 
     button.disabled = true;
@@ -555,7 +577,7 @@
       }
 
       // Capture at the top of the page with no scroll containers in the way.
-      preview.style.overflow = 'visible';
+      if (host) host.style.overflow = 'visible';
       window.scrollTo(0, 0);
 
       const scale = Math.max(2, Math.min(3, window.devicePixelRatio || 2));
@@ -576,7 +598,7 @@
       setStatus('PDF library unavailable (offline?) — opening the print dialog instead. Choose "Save as PDF".', 'warn');
       window.print();
     } finally {
-      preview.style.overflow = previousOverflow;
+      if (host) host.style.overflow = previousOverflow;
       window.scrollTo(0, previousScroll);
       button.disabled = false;
       button.removeAttribute('aria-busy');
@@ -668,7 +690,10 @@
     shareMenuOpen = false;
     $('#shareMenu').hidden = true;
     $('#shareBtn').setAttribute('aria-expanded', 'false');
-    if (document.activeElement && $('#shareMenu').contains(document.activeElement)) $('#shareBtn').focus();
+    if (document.activeElement && $('#shareMenu').contains(document.activeElement)) {
+      if (printViewOpen) $('#pvShareBtn').focus();
+      else $('#shareBtn').focus();
+    }
   }
 
   /** Render the live invoice to a PNG canvas using html2canvas (same path as the PDF). */
@@ -676,13 +701,13 @@
     await loadScript(PDF_LIBS.html2canvas);
     if (typeof window.html2canvas !== 'function') throw new Error('Image library unavailable (offline?)');
 
-    const preview = $('.preview');
     const paper = $('#invoice');
-    const previousOverflow = preview.style.overflow;
+    const host = captureHost();
+    const previousOverflow = host ? host.style.overflow : '';
     const previousScroll = window.scrollY || 0;
 
     // Capture at the top of the page with no scroll containers in the way.
-    preview.style.overflow = 'visible';
+    if (host) host.style.overflow = 'visible';
     window.scrollTo(0, 0);
 
     try {
@@ -695,7 +720,7 @@
         windowHeight: Math.max(paper.scrollHeight, window.innerHeight || 0)
       });
     } finally {
-      preview.style.overflow = previousOverflow;
+      if (host) host.style.overflow = previousOverflow;
       window.scrollTo(0, previousScroll);
     }
   }
@@ -769,6 +794,64 @@
     } catch (err) {
       if (err && err.name !== 'AbortError') showToast('Sharing is not available on this device.');
     }
+  }
+
+  /* ------------------------ printable / share view ------------------------ */
+
+  let printViewOpen = false;
+  let printViewReturnFocus = null;
+
+  function openPrintView() {
+    if (printViewOpen) return;
+    const paper = $('#invoice');
+    const stage = $('#printViewStage');
+    if (!paper || !stage) return;
+
+    // Move the live invoice into the full-screen stage; single source of truth.
+    if (paper.parentElement !== stage) stage.appendChild(paper);
+
+    printViewReturnFocus = document.activeElement;
+    printViewOpen = true;
+    $('#printView').hidden = false;
+    document.body.classList.add('print-view-open');
+    $('#pvPrintBtn').focus();
+  }
+
+  function closePrintView() {
+    const paper = $('#invoice');
+    const preview = $('.preview');
+    if (paper && preview && paper.parentElement !== preview) {
+      const label = $('.preview__label');
+      if (label && label.nextSibling) preview.insertBefore(paper, label.nextSibling);
+      else preview.appendChild(paper);
+    }
+    $('#printView').hidden = true;
+    document.body.classList.remove('print-view-open');
+    printViewOpen = false;
+    const backTo = printViewReturnFocus;
+    printViewReturnFocus = null;
+    if (backTo && backTo.focus && document.contains(backTo)) backTo.focus();
+    else $('#printShareBtn').focus();
+  }
+
+  function handlePrintViewKeydown(event) {
+    if (event.key === 'Escape' && printViewOpen && !shareMenuOpen) closePrintView();
+  }
+
+  function bindPrintViewEvents() {
+    $('#printShareBtn').addEventListener('click', openPrintView);
+    $('#pvCloseBtn').addEventListener('click', closePrintView);
+    $('#pvPrintBtn').addEventListener('click', () => {
+      window.print();
+    });
+    $('#pvPdfBtn').addEventListener('click', () => {
+      downloadPdf($('#pvPdfBtn')).then(() => showToast('PDF saved to your downloads.'));
+    });
+    $('#pvImageBtn').addEventListener('click', () => {
+      downloadShareImage();
+    });
+    $('#pvShareBtn').addEventListener('click', openShareMenu);
+    document.addEventListener('keydown', handlePrintViewKeydown);
   }
 
   function bindShareEvents() {
@@ -976,7 +1059,7 @@
     });
 
     $('#addItemBtn').addEventListener('click', addItem);
-    $('#pdfBtn').addEventListener('click', downloadPdf);
+    $('#pdfBtn').addEventListener('click', () => downloadPdf($('#pdfBtn')));
     $('#printBtn').addEventListener('click', () => window.print());
     $('#resetBtn').addEventListener('click', resetAll);
     $('#sampleBtn').addEventListener('click', loadSample);
@@ -999,6 +1082,7 @@
     renderPreview();
     bindEvents();
     bindShareEvents();
+    bindPrintViewEvents();
   }
 
   if (document.readyState === 'loading') {

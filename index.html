@@ -101,6 +101,10 @@
               <span class="field__label">Tax / VAT (%)</span>
               <input class="input" type="number" min="0" max="100" step="0.1" data-clamp="percent" data-bind="meta.taxRate" />
             </label>
+            <label class="field">
+              <span class="field__label">Delivery / shipping fee</span>
+              <input class="input" type="number" min="0" step="0.01" data-clamp="positive" data-bind="meta.deliveryFee" />
+            </label>
           </div>
         </fieldset>
 
@@ -143,6 +147,7 @@
             <p class="invoice__number">#<span id="outNumber"></span></p>
           </div>
           <div class="invoice__sender">
+            <span class="invoice__logo" id="outLogo" aria-hidden="true"></span>
             <p class="invoice__sender-name" id="outFromName"></p>
             <p class="invoice__muted" id="outFromAddress"></p>
             <p class="invoice__muted" id="outFromEmail"></p>
@@ -190,6 +195,9 @@
             <div class="totals__row" id="rowTax" hidden>
               <span id="outTaxLabel">Tax</span><span id="outTax">0.00</span>
             </div>
+            <div class="totals__row" id="rowDelivery" hidden>
+              <span>Delivery / shipping</span><span id="outDelivery">0.00</span>
+            </div>
             <div class="totals__row totals__row--due">
               <span>Total due</span><span id="outTotal">0.00</span>
             </div>
@@ -207,6 +215,11 @@
           </div>
         </footer>
       </article>
+
+      <button id="printShareBtn" class="btn btn--primary btn--block" type="button">
+        <svg class="btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><polyline points="8 11 12 15 16 11"/><path d="M4 17v3h16v-3"/></svg>
+        Print / Share Invoice
+      </button>
     </section>
   </main>
 
@@ -291,6 +304,33 @@
 
   <!-- Live feedback toast -->
   <div class="toast" id="shareToast" role="status" aria-live="polite"></div>
+
+  <!-- Ready-to-print / share view -->
+  <div class="print-view" id="printView" hidden>
+    <div class="print-view__bar">
+      <p class="print-view__title">Ready to Print / Share</p>
+      <div class="print-view__actions">
+        <button id="pvPrintBtn" class="btn btn--ghost" type="button">
+          <svg class="btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Print Invoice
+        </button>
+        <button id="pvPdfBtn" class="btn btn--ghost" type="button">
+          <svg class="btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Download PDF
+        </button>
+        <button id="pvImageBtn" class="btn btn--ghost" type="button">
+          <svg class="btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          Download as Image
+        </button>
+        <button id="pvShareBtn" class="btn btn--primary" type="button">
+          <svg class="btn__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+          Share
+        </button>
+      </div>
+      <button id="pvCloseBtn" class="print-view__close" type="button" aria-label="Close preview">&times;</button>
+    </div>
+    <div class="print-view__stage" id="printViewStage"></div>
+  </div>
 
   <script src="app.js"></script>
 </body>
